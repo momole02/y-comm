@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import { RestApiService } from './rest-api-service.js';
+import { generateClientId } from './utils.js';
 export class WebSocketServerManager {
     wss;
     clients = new Map();
@@ -156,8 +157,7 @@ export class WebSocketServerManager {
         });
     }
     generateClientId() {
-        return Math.random().toString(36).substring(2, 15) +
-            Math.random().toString(36).substring(2, 15);
+        return generateClientId();
     }
     // Méthodes publiques pour l'administration
     getClientsCount() {
