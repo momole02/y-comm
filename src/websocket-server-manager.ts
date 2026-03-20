@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import { RestApiService } from './rest-api-service.js';
+import { generateClientId } from './utils.js';
 import {
   ClientInfo,
   ClientMessage,
@@ -192,8 +193,7 @@ export class WebSocketServerManager {
   }
 
   private generateClientId(): string {
-    return Math.random().toString(36).substring(2, 15) +
-      Math.random().toString(36).substring(2, 15);
+    return generateClientId();
   }
 
   // Méthodes publiques pour l'administration
