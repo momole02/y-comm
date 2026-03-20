@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            background-color: #f9f9f9;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 4px;
+            background-color: #e9ecef;
+        }
+        .message.chat {
+            background-color: #007bff;
+            color: white;
+        }
+        .message.private {
+            background-color: #28a745;
+            color: white;
+        }
+        .message.system {
+            background-color: #6c757d;
+            color: white;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .input-group {
+            display: flex;
+            gap: 5px;
+            margin: 10px 0;
+        }
+        .input-group input {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Client WebSocket Test</h1>
+        
+        <div id="status" class="status disconnected">
+            ❌ Déconnecté
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="messageInput" placeholder="Tapez votre message..." disabled>
+            <button id="sendBtn" disabled>Envoyer</button>
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="targetClientId" placeholder="ID client cible (pour message privé)">
+            <button id="privateBtn" disabled>Message Privé</button>
+        </div>
+
+        <div>
+            <button id="pingBtn" disabled>Ping</button>
+            <button id="clearBtn">Vider Messages</button>
+        </div>
+
+        <h3>💬 Messages</h3>
+        <div id="messages" class="messages"></div>
+
+        <h3>📊 Infos</h3>
+        <div id="infos">
+            <p><strong>ID Client:</strong> <span id="clientId">-</span></p>
+            <p><strong>Heure de connexion:</strong> <span id="connectTime">-</span></p>
+        </div>
+    </div>
+
+    <script>
+        class WebSocketClient {
+            constructor() {
+                this.ws = null;
+                this.clientId = null;
+                this.connectTime = null;
+                this.initElements();
+                this.initEventListeners();
+                this.connect();
+            }
+
+            initElements() {
+                this.statusEl = document.getElementById('status');
+                this.messagesEl = document.getElementById('messages');
+                this.messageInput = document.getElementById('messageInput');
+                this.sendBtn = document.getElementById('sendBtn');
+                this.privateBtn = document.getElementById('privateBtn');
+                this.pingBtn = document.getElementById('pingBtn');
+                this.clearBtn = document.getElementById('clearBtn');
+                this.targetClientId = document.getElementById('targetClientId');
+                this.clientIdEl = document.getElementById('clientId');
+                this.connectTimeEl = document.getElementById('connectTime');
+            }
+
+            initEventListeners() {
+                this.sendBtn.addEventListener('click', () => this.sendMessage());
+                this.privateBtn.addEventListener('click', () => this.sendPrivateMessage());
+                this.pingBtn.addEventListener('click', () => this.sendPing());
+                this.clearBtn.addEventListener('click', () => this.clearMessages());
+                
+                this.messageInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.sendMessage();
+                    }
+                });
+            }
+
+            connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+                
+                console.log('🔌 Connexion à:', wsUrl);
+                
+                this.ws = new WebSocket(wsUrl);
+
+                this.ws.onopen = () => {
+                    this.updateStatus(true);
+                    this.connectTime = new Date().toLocaleTimeString();
+                    this.connectTimeEl.textContent = this.connectTime;
+                    this.enableControls(true);
+                    this.addMessage('Connecté au serveur WebSocket', 'system');
+                };
+
+                this.ws.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+                    this.handleMessage(message);
+                };
+
+                this.ws.onclose = () => {
+                    this.updateStatus(false);
+                    this.enableControls(false);
+                    this.addMessage('Déconnecté du serveur WebSocket', 'system');
+                    
+                    // Tentative de reconnexion après 3 secondes
+                    setTimeout(() => {
+                        this.addMessage('Tentative de reconnexion...', 'system');
+                        this.connect();
+                    }, 3000);
+                };
+
+                this.ws.onerror = (error) => {
+                    console.error('❌ Erreur WebSocket:', error);
+                    this.addMessage('Erreur de connexion WebSocket', 'system');
+                };
+            }
+
+            handleMessage(message) {
+                switch (message.type) {
+                    case 'welcome':
+                        this.clientId = message.clientId;
+                        this.clientIdEl.textContent = this.clientId;
+                        this.addMessage(message.message, 'system');
+                        break;
+                    
+                    case 'chat':
+                        this.addMessage(`[${message.clientId}] ${message.message}`, 'chat');
+                        break;
+                    
+                    case 'private_message':
+                        this.addMessage(`[Privé de ${message.fromClientId}] ${message.message}`, 'private');
+                        break;
+                    
+                    case 'client_disconnected':
+                        this.addMessage(`Client ${message.clientId} s'est déconnecté`, 'system');
+                        break;
+                    
+                    case 'pong':
+                        this.addMessage('Pong reçu 🏓', 'system');
+                        break;
+                    
+                    case 'error':
+                        this.addMessage(`❌ Erreur: ${message.message}`, 'system');
+                        break;
+                    
+                    default:
+                        this.addMessage(`Message inconnu: ${message.type}`, 'system');
+                }
+            }
+
+            sendMessage() {
+                const message = this.messageInput.value.trim();
+                if (!message) return;
+
+                this.ws.send(JSON.stringify({
+                    type: 'chat',
+                    message: message
+                }));
+
+                this.messageInput.value = '';
+                this.addMessage(`[Moi] ${message}`, 'chat');
+            }
+
+            sendPrivateMessage() {
+                const message = this.messageInput.value.trim();
+                const targetId = this.targetClientId.value.trim();
+                
+                if (!message || !targetId) {
+                    alert('Veuillez entrer un message et un ID client cible');
+                    return;
+                }
+
+                this.ws.send(JSON.stringify({
+                    type: 'private_message',
+                    targetClientId: targetId,
+                    message: message
+                }));
+
+                this.messageInput.value = '';
+                this.addMessage(`[Privé vers ${targetId}] ${message}`, 'private');
+            }
+
+            sendPing() {
+                this.ws.send(JSON.stringify({
+                    type: 'ping'
+                }));
+                this.addMessage('Ping envoyé 🏓', 'system');
+            }
+
+            addMessage(text, type = 'default') {
+                const messageEl = document.createElement('div');
+                messageEl.className = `message ${type}`;
+                messageEl.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+                
+                this.messagesEl.appendChild(messageEl);
+                this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+            }
+
+            clearMessages() {
+                this.messagesEl.innerHTML = '';
+            }
+
+            updateStatus(connected) {
+                if (connected) {
+                    this.statusEl.className = 'status connected';
+                    this.statusEl.textContent = '✅ Connecté';
+                } else {
+                    this.statusEl.className = 'status disconnected';
+                    this.statusEl.textContent = '❌ Déconnecté';
+                }
+            }
+
+            enableControls(enabled) {
+                this.messageInput.disabled = !enabled;
+                this.sendBtn.disabled = !enabled;
+                this.privateBtn.disabled = !enabled;
+                this.pingBtn.disabled = !enabled;
+            }
+        }
+
+        // Démarrer le client WebSocket quand la page est chargée
+        document.addEventListener('DOMContentLoaded', () => {
+            new WebSocketClient();
+        });
+    </script>
+</body>
+</html>
